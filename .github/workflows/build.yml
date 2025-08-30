@@ -1,0 +1,75 @@
+name: Build Main Levels Editor
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Setup Geode SDK
+      uses: geode-sdk/cli@main
+      
+    - name: Build Windows
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Release
+        cmake --build build --config Release
+        
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: main-levels-editor-windows
+        path: build/main.geode
+
+  build-android:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Setup Geode SDK
+      uses: geode-sdk/cli@main
+      
+    - name: Build Android
+      run: |
+        geode config setup --platform android
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-23
+        cmake --build build --config Release
+        
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: main-levels-editor-android
+        path: build/main.geode
+
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Setup Geode SDK
+      uses: geode-sdk/cli@main
+      
+    - name: Build macOS
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Release
+        cmake --build build --config Release
+        
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: main-levels-editor-macos
+        path: build/main.geode

@@ -462,12 +462,12 @@ protected:
 
                                 auto body = std::stringstream();
 
-                                body << """" "`  File:` [" + path.string() + "](file:///" + string::replace(path.string(), " ", "%20") + ")";
+                                body << """" "`  File:` [" + string::pathToString(path) + "](file:///" + string::replace(string::pathToString(path), " ", "%20") + ")";
                                 body << "\n";
-                                body << "\n" "`   Dir:` [" + dir.string() + "](file:///" + string::replace(dir.string(), " ", "%20") + ")";
+                                body << "\n" "`   Dir:` [" + string::pathToString(dir) + "](file:///" + string::replace(string::pathToString(dir), " ", "%20") + ")";
                                 body << "\n";
                                 body << "\n" "```";
-                                body << "\n" "zip tree of \"" << std::filesystem::path(path).filename().string() << "\": ";
+                                body << "\n" "zip tree of \"" << string::pathToString(std::filesystem::path(path).filename()) << "\": ";
                                 auto unzip = file::Unzip::create(string::pathToString(path));
                                 if (unzip.err()) body
                                     << "\n" "FAILED TO OPEN CREATED ZIP!"
@@ -477,7 +477,7 @@ protected:
                                 body << "\n" "```";
                                 body << "\n";
                                 body << "\n" "```";
-                                body << "\n" "data \"" << std::filesystem::path(path).filename().string() << "\": ";
+                                body << "\n" "data \"" << string::pathToString(std::filesystem::path(path).filename()) << "\": ";
                                 for (auto entry : dbg_json) body
                                     << "\n- " << entry.getKey().value_or("unk") + ": " << entry.dump();
                                 body << "\n" "```";
