@@ -24,7 +24,7 @@ namespace mle {
             auto path = CCFileUtils::get()->fullPathForFilename(levelFileName.c_str(), 0);
             level = level::importLevelFile(path.c_str()).unwrapOr(level);
         }
-        else log::debug("don't exists in search paths: {}", levelFileName.c_str());
+        else log::info("don't exists in search paths: {}", levelFileName.c_str());
 
         if (!appendSubDir) return tryLoadFromFiles(level, customLvlID, true);
         return level;
@@ -209,57 +209,140 @@ protected:
         this->setTitle("");
 
         auto menu = CCMenu::create();
-        menu->setContentWidth(260.000f);
-        menu->setContentHeight(262.000f);
+        menu->setContentWidth(280.000f);
+        menu->setContentHeight(300.000f);
         this->m_mainLayer->addChildAtPosition(menu, Anchor::Center, { 0.f, 0.f });
 
         auto lopts = AxisLayoutOptions::create()
             ->setScaleLimits(0.1f, 1.5f)
             ->setAutoScale(true);
 
-        auto titlespr = [lopts](const char* a) {
-            auto aw = ButtonSprite::create(a, "bigFont.fnt", "GJ_button_03.png");
-			aw->setLayoutOptions(lopts);
-            return aw;
-            };
+        // Create improved section title function with better styling
+        auto createSectionTitle = [lopts](const char* title) {
+            auto titleSprite = ButtonSprite::create(title, "goldFont.fnt", "GJ_button_03.png");
+            titleSprite->setLayoutOptions(lopts);
+            titleSprite->setScale(0.95f);
+            return titleSprite;
+        };
 
-        auto btnspr = [lopts](const char* a) {
-            auto aw = ButtonSprite::create(a, "bigFont.fnt", "GJ_button_05.png");
-            aw->setLayoutOptions(lopts);
-            return aw;
-            };
+        // Create regular button function with consistent styling
+        auto createButton = [lopts](const char* text) {
+            auto buttonSprite = ButtonSprite::create(text, "bigFont.fnt", "GJ_button_05.png");
+            buttonSprite->setLayoutOptions(lopts);
+            buttonSprite->setScale(0.9f);
+            return buttonSprite;
+        };
 
-        menu->addChild(titlespr("Main Levels Editor"));
+        // Create spacer function for better organization
+        auto createSpacer = [](float height = 8.f) {
+            return CCLayerColor::create({ 0,0,0,0 }, 12, height);
+        };
 
-        CCMenuItemSpriteExtra* settings = CCMenuItemExt::createSpriteExtra(
-            btnspr("Open Settings"),
+        // === MAIN TITLE SECTION ===
+        auto mainTitleSprite = createSectionTitle("Main Levels Editor");
+        mainTitleSprite->setScale(1.0f); // Make main title slightly larger
+        menu->addChild(mainTitleSprite);
+        
+        auto mainInfoBtn = CCMenuItemExt::createSpriteExtra(
+            CCSprite::createWithSpriteFrameName("GJ_infoIcon_001.png"),
+            [](auto) {
+                MDPopup::create(
+                    "Main Levels Editor",
+                    "<cg>Welcome to Main Levels Editor!</cg>\n\n<cy>What this mod does:</cy>\n• Replace official main levels with custom ones\n• Import/export .level files with full data\n• Create and share level packs\n• Edit levels with preserved audio and metadata\n\n<cy>Quick start:</cy>\n1. Use 'Insert into Level List' to add levels\n2. Click 'Reload Levels Cache' to see changes\n3. Export levels to share with others\n\n<co>Hold Shift on any button for detailed help!</co>",
+                    "Got it!"
+                )->show();
+            }
+        );
+        mainInfoBtn->setScale(0.65f);
+        mainInfoBtn->setLayoutOptions(lopts);
+        menu->addChild(mainInfoBtn);
+        
+        menu->addChild(createSpacer(12.f)); // Larger spacer after main title
+
+        // === MAIN CONTROLS SECTION ===
+        auto settingsBtn = CCMenuItemExt::createSpriteExtra(
+            createButton("Open Settings"),
             [__this = Ref(this)](auto) {
                 openSettingsPopup(getMod(), 1);
             }
         );
-        settings->setLayoutOptions(lopts);
-        settings->setID("settings"_spr);
-        menu->addChild(settings);
+        settingsBtn->setLayoutOptions(lopts);
+        settingsBtn->setID("settings"_spr);
+        menu->addChild(settingsBtn);
 
-        CCMenuItemSpriteExtra* reload_levels_cache = CCMenuItemExt::createSpriteExtra(
-            btnspr("Reload levels cache!"),
-            [__this = Ref(this)](auto) {
+        auto reloadCacheBtn = CCMenuItemExt::createSpriteExtra(
+            createButton("Reload Levels Cache"),
+            [__this = Ref(this)](CCMenuItemSpriteExtra*) {
+                // Show info popup before reloading if user holds shift
+                if (CCDirector::get()->getKeyboardDispatcher()->getShiftKeyPressed()) {
+                    MDPopup::create(
+                        "Reload Levels Cache",
+                        "This will:\n\n• Refresh all custom level data\n• Update level names and metadata\n• Apply any new .level files you've added\n• Automatically refresh the Level Select UI\n\nUse this after adding new levels or making changes to existing ones.",
+                        "OK"
+                    )->show();
+                    return;
+                }
+                // Reload the level cache
                 LocalLevelManager::get()->init();
-                //(LevelSelectLayer::create(__this = Ref(this)->m_scrollLayer->m_page));
-                Notification::create("local level manager was reinitialized", NotificationIcon::Info)->show();
+                
+                // Try to refresh the UI if we're currently in a level select layer
+                auto scene = CCScene::get();
+                if (auto levelSelectLayer = scene->getChildByType<LevelSelectLayer>(0)) {
+                    // Get the current page to preserve user's position
+                    int currentPage = 0;
+                    if (auto scrollLayer = typeinfo_cast<BoomScrollLayer*>(levelSelectLayer->m_scrollLayer)) {
+                        currentPage = scrollLayer->m_page;
+                    }
+                    
+                    // Close the popup first
+                    __this->keyBackClicked();
+                    
+                    // Schedule a refresh after a brief delay to let the popup close
+                    levelSelectLayer->runAction(CCSequence::create(
+                        CCDelayTime::create(0.2f),
+                        CallFuncExt::create([levelSelectLayer, currentPage]() {
+                            // Refresh the level select layer by reinitializing it
+                            // This will trigger the BoomScrollLayer hook to reload levels with new cache data
+                            if (levelSelectLayer && levelSelectLayer->getParent()) {
+                                auto parent = levelSelectLayer->getParent();
+                                levelSelectLayer->removeFromParent();
+                                
+                                // Create a new level select layer
+                                auto newLevelSelect = LevelSelectLayer::create(currentPage);
+                                parent->addChild(newLevelSelect);
+                            }
+                        }),
+                        nullptr
+                    ));
+                    
+                    Notification::create("Cache reloaded and UI refreshed!", NotificationIcon::Success)->show();
+                } else {
+                    // Not in level select, just show the standard notification
+                    Notification::create("Cache reloaded!\nNavigate to Level Select to see changes.", NotificationIcon::Info)->show();
+                }
             }
         );
-		reload_levels_cache->setLayoutOptions(lopts);
-        reload_levels_cache->setID("reload_levels_cache"_spr);
-        menu->addChild(reload_levels_cache);
+		reloadCacheBtn->setLayoutOptions(lopts);
+        reloadCacheBtn->setID("reload_levels_cache"_spr);
+        menu->addChild(reloadCacheBtn);
 
-        menu->addChild(CCLayerColor::create({ 0,0,0,0 }, 12, 6));
+        menu->addChild(createSpacer(10.f)); // Better section spacing
 
-        menu->addChild(titlespr("Shared Level Files"));
+        // === LEVEL FILES SECTION ===
+        menu->addChild(createSectionTitle("Level Files"));
 
-        CCMenuItemSpriteExtra* load_level = CCMenuItemExt::createSpriteExtra(
-            btnspr("Open .level file"),
+        auto loadLevelBtn = CCMenuItemExt::createSpriteExtra(
+            createButton("Open Level File"),
             [__this = Ref(this)](auto) {
+                // Show info popup if user holds shift
+                if (CCDirector::get()->getKeyboardDispatcher()->getShiftKeyPressed()) {
+                    MDPopup::create(
+                        "Open Level File",
+                        "Browse and open .level files to:\n\n• View level information\n• Play the level\n• Access the level editor\n\n.level files contain complete level data including audio, metadata, and all objects. They're like enhanced .gmd files with full level preservation.",
+                        "OK"
+                    )->show();
+                    return;
+                }
                 auto IMPORT_PICK_OPTIONS = file::FilePickOptions{
                     std::nullopt, {{ "Extended Shared Level File", { "*.level" } }}
                 };
@@ -312,13 +395,22 @@ protected:
                 __this->m_listener.setFilter(file::pick(file::PickMode::OpenFile, IMPORT_PICK_OPTIONS));
             }
         );
-		load_level->setLayoutOptions(lopts);
-        load_level->setID("export_level"_spr);
-        menu->addChild(load_level);
+		loadLevelBtn->setLayoutOptions(lopts);
+        loadLevelBtn->setID("export_level"_spr);
+        menu->addChild(loadLevelBtn);
 
-        CCMenuItemSpriteExtra* edit_level = CCMenuItemExt::createSpriteExtra(
-            btnspr("Edit .level file"),
+        auto editLevelBtn = CCMenuItemExt::createSpriteExtra(
+            createButton("Edit Level File"),
             [__this = Ref(this)](auto) {
+                // Show info popup if user holds shift
+                if (CCDirector::get()->getKeyboardDispatcher()->getShiftKeyPressed()) {
+                    MDPopup::create(
+                        "Edit Level File",
+                        "Open a .level file directly in the level editor to:\n\n• Modify level geometry and objects\n• Edit metadata (name, difficulty, etc.)\n• Change audio tracks\n• Add/remove coins\n\nChanges are saved back to the .level file through the special Level Settings menu.",
+                        "OK"
+                    )->show();
+                    return;
+                }
                 auto IMPORT_PICK_OPTIONS = file::FilePickOptions{
                     std::nullopt, {{ "Extended Shared Level File", { "*.level" } }}
                 };
@@ -347,18 +439,34 @@ protected:
                 __this->m_listener.setFilter(file::pick(file::PickMode::OpenFile, IMPORT_PICK_OPTIONS));
             }
         );
-		edit_level->setLayoutOptions(lopts);
-        edit_level->setID("edit_level"_spr);
-        menu->addChild(edit_level);
+		editLevelBtn->setLayoutOptions(lopts);
+        editLevelBtn->setID("edit_level"_spr);
+        menu->addChild(editLevelBtn);
 
-        menu->addChild(CCLayerColor::create({ 0,0,0,0 }, 12, 6));
+        menu->addChild(createSpacer(6.f));
 
-        menu->addChild(titlespr("Act. With Current Level"));
+        menu->addChild(createSectionTitle("Current Level Actions"));
 
-        menu->addChild(CCLayerColor::create({ 0,0,0,0 }, 12, 12));
+        menu->addChild(createSpacer(12.f));
 
+        // Add info button for level insertion
+        CCMenuItemSpriteExtra* insertion_help = CCMenuItemExt::createSpriteExtra(
+            CCSprite::createWithSpriteFrameName("GJ_infoIcon_001.png"),
+            [](auto) {
+                MDPopup::create(
+                    "Level Insertion Guide",
+                    "<cg>Level ID Options:</cg>\n\n<cy>Leave blank:</cy> Adds as new level at end\n<cy>Specific number (e.g. 5):</cy> Inserts at that position\n<cy>-1:</cy> Adds at front of list\n\n<cg>How it works:</cg>\n\n1. Current level is exported as .level file\n2. Added to your custom level listing\n3. Use 'Reload Levels Cache' to see it\n\n<co>Tip:</co> You can replace official levels by using their ID (1-21)!",
+                    "Got it!"
+                )->show();
+            }
+        );
+        insertion_help->setScale(0.65f);
+        insertion_help->setLayoutOptions(lopts);
+        insertion_help->setID("insertion_help"_spr);
+        menu->addChild(insertion_help);
+        
         auto id_input = TextInput::create(350.000f,
-            "        Level ID to Insert At:\nLeave blank to add as new level\nor -1 to add as new in front of list\n "
+            "        Level ID to Insert At:\nLeave blank to add as new level\nor -1 to add at front of list\n "
         );
         id_input->setLayoutOptions(lopts);
         id_input->setFilter("0123456789-");
@@ -366,8 +474,17 @@ protected:
         menu->addChild(id_input);
 
         CCMenuItemSpriteExtra* insert_to_level_list = CCMenuItemExt::createSpriteExtra(
-            btnspr("Insert to Level List"),
+            createButton("Insert into Level List"),
             [__this = Ref(this), id_input](CCMenuItem*) {
+                // Show info popup if user holds shift
+                if (CCDirector::get()->getKeyboardDispatcher()->getShiftKeyPressed()) {
+                    MDPopup::create(
+                        "Insert into Level List",
+                        "<cg>What this does:</cg>\n\n• Exports current level as .level file\n• Adds it to your custom Main Levels list\n• Can replace official levels (ID 1-21)\n• Can add completely new levels\n\n<cg>Requirements:</cg>\n\n• Must be playing a level\n• Level will be saved to mod config folder\n• Use 'Reload Levels Cache' after insertion\n\n<co>Perfect for:</co> Testing custom levels in the official level progression!",
+                        "OK"
+                    )->show();
+                    return;
+                }
                 if (!GameManager::get()->getGameLayer()) {
                     return Notification::create("You are not in a level", NotificationIcon::Error)->show();
                 }
@@ -426,7 +543,10 @@ protected:
                 Mod::get()->setSettingValue<std::string>("LEVELS_LISTING", new_listing);
                 Mod::get()->saveData().isOk();
 
-                Notification::create("Level inserted to list!", NotificationIcon::Success)->show();
+                Notification::create(
+                    "Level inserted successfully!\nUse 'Reload Levels Cache' to see changes.",
+                    NotificationIcon::Success
+                )->show();
             }
         );
 		insert_to_level_list->setLayoutOptions(lopts);
@@ -434,8 +554,17 @@ protected:
         menu->addChild(insert_to_level_list);
 
         CCMenuItemSpriteExtra* export_level = CCMenuItemExt::createSpriteExtra(
-            btnspr("Export into .level file"),
+            createButton("Export as Level File"),
             [__this = Ref(this)](CCMenuItem*) {
+                // Show info popup if user holds shift
+                if (CCDirector::get()->getKeyboardDispatcher()->getShiftKeyPressed()) {
+                    MDPopup::create(
+                        "Export as Level File",
+                        "<cg>Export current level to .level file:</cg>\n\n• Saves complete level data (geometry, audio, metadata)\n• Much more comprehensive than .gmd files\n• Can be shared with other players\n• Preserves all custom audio and settings\n\n<cg>Great for:</cg>\n\n• Backing up your levels\n• Sharing levels with friends\n• Creating level packs\n• Preserving custom audio tracks",
+                        "OK"
+                    )->show();
+                    return;
+                }
                 if (!GameManager::get()->getGameLayer()) {
                     Notification::create("You are not in a level", NotificationIcon::Error)->show();
                     return;
@@ -483,14 +612,14 @@ protected:
                                 body << "\n" "```";
 
                                 MDPopup::create(
-                                    "Level Exported!",
+                                    "Level Exported Successfully!",
                                     body.str(),
-                                    "Ok"
+                                    "OK"
                                 )->show();
                             }
                             else {
                                 //aaaa msg
-                                Notification::create("failed to save level!", NotificationIcon::Warning)->show();
+                                Notification::create("Failed to save level!", NotificationIcon::Warning)->show();
                                 //and err
                                 if (level_export.err()) Notification::create(
                                     level_export.err().value_or("UNK ERROR")
@@ -514,13 +643,22 @@ protected:
         export_level->setID("export_level"_spr);
         menu->addChild(export_level);
 
-        menu->addChild(CCLayerColor::create({ 0,0,0,0 }, 12, 6));
+        menu->addChild(createSpacer(6.f));
 
-        menu->addChild(titlespr("Create Shared Levels Pack..."));
+        menu->addChild(createSectionTitle("Create Level Packs"));
         
         CCMenuItemSpriteExtra* tp_create = CCMenuItemExt::createSpriteExtra(
-            btnspr("In resource pack (TP)"),
+            createButton("As Texture Pack"),
             [__this = Ref(this)](CCMenuItem*) -> void {
+                // Show info popup if user holds shift
+                if (CCDirector::get()->getKeyboardDispatcher()->getShiftKeyPressed()) {
+                    MDPopup::create(
+                        "Create as Texture Pack",
+                        "<cg>Creates a Texture Loader pack containing:</cg>\n\n• All your custom .level files\n• Your current mod settings\n• Pack metadata and icon\n\n<cg>Perfect for:</cg>\n\n• Sharing your entire level collection\n• Creating themed level packs\n• Easy installation for other players\n\n<cy>Requires Texture Loader mod to be installed!</cy>",
+                        "OK"
+                    )->show();
+                    return;
+                }
                 auto err = std::error_code();
                 namespace fs = std::filesystem;
                 auto packs = getMod()->getConfigDir().parent_path() / "geode.texture-loader" / "packs";
@@ -603,8 +741,17 @@ protected:
 		menu->addChild(tp_create);
 
         CCMenuItemSpriteExtra* mod_create = CCMenuItemExt::createSpriteExtra(
-            btnspr("In modified .geode package"),
+            createButton("As Geode Package"),
             [__this = Ref(this)](CCMenuItem*) {
+                // Show info popup if user holds shift
+                if (CCDirector::get()->getKeyboardDispatcher()->getShiftKeyPressed()) {
+                    MDPopup::create(
+                        "Create as Geode Package",
+                        "<cg>Creates a standalone .geode mod containing:</cg>\n\n• All your custom .level files\n• Pre-configured settings\n• Self-contained installation\n\n<cg>Benefits:</cg>\n\n• No setup required for users\n• Conflicts with main mod (by design)\n• Perfect for level pack distribution\n• Works independently\n\n<co>Users just install the .geode file and get your entire level collection!</co>",
+                        "OK"
+                    )->show();
+                    return;
+                }
                 auto err = std::error_code();
 				namespace fs = std::filesystem;
                 auto modid = fmt::format(
@@ -672,7 +819,7 @@ protected:
                 fs::remove_all(workdir, err);
                 //notify
 				Notification::create(
-					fmt::format(" Created custom package in mods folder:\n {}", string::pathToString(package.filename())),
+					fmt::format("Custom package created in mods folder:\n{}", string::pathToString(package.filename())),
 					NotificationIcon::Success, 5.f
 				)->show();
             }
@@ -791,34 +938,34 @@ class $modify(MLE_LocalLevelManager, LocalLevelManager) {
         }
         else {
             log::info("Custom settings file not found, checking for backup...");
-            if (std::filesystem::exists(backupPath, fucku)) {
-                //replace
-                std::filesystem::remove(getMod()->getSaveDir() / "settings.json", fucku);
-                std::filesystem::rename(backupPath, getMod()->getSaveDir() / "settings.json", fucku);
-                //reload
+            auto savePath = getMod()->getSaveDir() / "settings.json";
+            if (!std::filesystem::exists(savePath, fucku) && std::filesystem::exists(backupPath, fucku)) {
+                // restore only if settings.json is missing
+                std::filesystem::rename(backupPath, savePath, fucku);
+                // reload
                 auto loadResult = getMod()->loadData();
                 if (loadResult.isErr()) log::error("Failed to reload mod data: {}", loadResult.unwrapErr());
                 else log::info("Settings successfully restored from backup!");
             }
-            else log::info("No backup file found, using current settings");
+            else log::info("Settings present or no backup found; not restoring from backup");
         }
 
-        log::debug("Loading .level files for list: {}", mle::getListingIDs());
+        log::info("Loading .level files for list: {}", mle::getListingIDs());
         for (auto id : mle::getListingIDs()) {
-            log::debug("Loading level {}", id);
+            log::info("Loading level {}", id);
             auto level = GJGameLevel::create();
             level->m_levelName = "___level_was_not_loaded";
             level = mle::tryLoadFromFiles(level, id);
-            log::debug("{}", level->m_levelName.c_str());
+            log::info("Level {} name: {}", id, level->m_levelName.c_str());
             if (std::string(level->m_levelName.c_str()) != "___level_was_not_loaded") { // level name was changed if it was loaded
                 log::info("Loaded level {}", id);
                 if (std::string(level->m_levelString.c_str()).empty()) void();
                 else m_mainLevels[id] = level->m_levelString;
-                log::debug("Level {} string size is {}", id, std::string(level->m_levelString.c_str()).size());
+                log::info("Level {} string size is {}", id, std::string(level->m_levelString.c_str()).size());
                 MLE_LevelsInJSON::get()->insert_or_assign(id, level::jsonFromLevel(level));
-                log::debug("Level {} json dump size is {}", id, MLE_LevelsInJSON::get()->at(id).dump().size());
+                log::info("Level {} json dump size is {}", id, MLE_LevelsInJSON::get()->at(id).dump().size());
             }
-            else log::debug("The .level file for {} was not founded", id);
+            else log::info("The .level file for {} was not found", id);
         }
 
         return true;
@@ -1183,16 +1330,16 @@ ConfigureLevelFileDataPopup can be closed to get access to default level setting
 class $modify(MLE_EditorUI, EditorUI) {
     void showInfoPopup(float) {
         MDPopup::create(
-            "Welcome to .level Editor",
-            R"(Open default <cg>Level Settings</c> to open tools that help you edit the .level file:
+            "Welcome to Level Editor",
+            R"(Open default <cg>Level Settings</c> to access tools for editing this level file:
 
-- Meta data editor
+- Metadata editor
 - Difficulty sprite selector
-- Coins replace tool
+- Coin replacement tool
 
-<co>`Current level can be saved to .level file only in that tools!`</c>
+<co>Note: This level can only be saved through these tools!</c>
 
-<cr>`And save buttons in editor pause menu doesn't work!`</c>)", 
+<cr>Warning: Save buttons in the editor pause menu will not work!</c>)", 
 "OK"
 )->show();
     }
@@ -1210,9 +1357,9 @@ class $modify(MLE_EditorUI, EditorUI) {
         if (auto impinfo = m_editorLayer->m_level->getChildByTag("is-imported-from-file"_h)) {
             //coins replacer
             if (TYPE_AND_ID_HACKS_FOR_SECRET_COINS) createQuickPopup(
-                "Replace coins?",
-                "Here you can change all\n<co>User Coins</c>\nin level to\n<cy>Secret Coins</c>",
-                "Nah", "Replace", [editor = Ref(m_editorLayer), impinfo = Ref(impinfo)](void*, bool replace) {
+                "Replace Coins?",
+                "Convert all <co>User Coins</c> in this level to <cy>Secret Coins</c>?",
+                "Cancel", "Replace", [editor = Ref(m_editorLayer), impinfo = Ref(impinfo)](void*, bool replace) {
                     if (!replace) return;
                     auto replaced = 0;
                     for (auto obj : CCArrayExt<GameObject*>(editor->m_objects)) if (obj) {
@@ -1241,7 +1388,7 @@ class $modify(MLE_EditorUI, EditorUI) {
                     )) item->activate();
                 }
                 bool setup(GJGameLevel* level, std::filesystem::path related_File) override {
-                    this->setTitle("Select Difficulty Sprite");
+                    this->setTitle("Select Difficulty");
                     this->setMouseEnabled(true);
 
                     Ref preview = CCSprite::create("diffIcon_01_btn_001.png");
